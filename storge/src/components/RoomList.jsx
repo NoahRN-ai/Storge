@@ -46,25 +46,27 @@ const CreateGroupRoomModal = ({ currentUserId, onClose, onRoomCreated }) => {
   };
 
   return (
-    <div className="profile-modal-overlay"> {/* Reusing profile modal style for overlay */}
-      <div className="profile-modal" style={{maxWidth: '350px'}}> {/* Reusing profile modal style */}
+    // Use generic modal classes from index.css
+    <div className="modal-overlay">
+      <div className="modal-content create-room-modal-specific-styles"> {/* Add specific class if needed */}
         <h2>Create New Group</h2>
-        {error && <p className="error-message" style={{color: 'red'}}>{error}</p>}
-        <div>
+        {error && <p className="error-message">{error}</p>}
+        <div className="form-group">
           <label htmlFor="roomName">Group Name:</label>
           <input
             type="text"
             id="roomName"
+            className="form-input"
             value={roomName}
             onChange={(e) => setRoomName(e.target.value)}
             disabled={loading}
           />
         </div>
-        <div className="modal-actions" style={{marginTop: '15px'}}>
-          <button onClick={handleCreateRoom} disabled={loading}>
+        <div className="modal-actions">
+          <button onClick={handleCreateRoom} disabled={loading} className="button button-primary">
             {loading ? 'Creating...' : 'Create Group'}
           </button>
-          <button type="button" onClick={onClose} disabled={loading}>
+          <button type="button" onClick={onClose} disabled={loading} className="button button-secondary">
             Cancel
           </button>
         </div>
@@ -105,7 +107,7 @@ const RoomList = ({ rooms, currentRoomId, onSelectRoom, onCreateRoom, currentUse
         <h3>Conversations</h3>
         <button
           onClick={() => setShowCreateGroupModal(true)}
-          className="new-group-button"
+          className="button new-group-button" // Use general button class + specific
           title="Create new group chat"
         >
           + Group
@@ -130,99 +132,7 @@ const RoomList = ({ rooms, currentRoomId, onSelectRoom, onCreateRoom, currentUse
           onRoomCreated={handleNewRoomCreated}
         />
       )}
-      <style jsx>{`
-        .room-list-container {
-          width: 250px;
-          border-right: 1px solid #eee;
-          padding: 10px;
-          display: flex;
-          flex-direction: column;
-          background-color: #f9f9f9;
-        }
-        .room-list-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 10px;
-        }
-        .room-list-header h3 {
-          margin: 0;
-        }
-        .new-group-button {
-          padding: 5px 8px;
-          background-color: #007bff;
-          color: white;
-          border: none;
-          border-radius: 4px;
-          cursor: pointer;
-        }
-        .new-group-button:hover {
-          background-color: #0056b3;
-        }
-        .room-list {
-          list-style: none;
-          padding: 0;
-          margin: 0;
-          overflow-y: auto;
-        }
-        .room-list-item {
-          padding: 10px;
-          cursor: pointer;
-          border-bottom: 1px solid #eee;
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
-        }
-        .room-list-item:hover {
-          background-color: #e9e9e9;
-        }
-        .room-list-item.active {
-          background-color: #007bff;
-          color: white;
-          font-weight: bold;
-        }
-        .no-rooms-message {
-          text-align: center;
-          color: #777;
-          margin-top: 20px;
-        }
-        /* Reusing some styles from ProfileModal for consistency */
-        .profile-modal-overlay {
-          position: fixed;
-          top: 0;
-          left: 0;
-          width: 100%;
-          height: 100%;
-          background-color: rgba(0, 0, 0, 0.5);
-          display: flex;
-          justify-content: center;
-          align-items: center;
-          z-index: 1000;
-        }
-        .profile-modal {
-          background: white;
-          padding: 20px;
-          border-radius: 8px;
-          box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-          width: 90%;
-        }
-        .profile-modal label {
-          display: block;
-          margin-bottom: 5px;
-        }
-        .profile-modal input[type="text"]{
-          width: calc(100% - 22px); /* Account for padding and border */
-          padding: 8px 10px;
-          border: 1px solid #ccc;
-          border-radius: 4px;
-          margin-bottom: 10px;
-        }
-        .modal-actions {
-          display: flex;
-          justify-content: flex-end;
-          gap: 10px;
-        }
-      `}</style>
+      {/* <style jsx>{` ... `}</style> Removed inline styles, will move to index.css */}
     </div>
   );
 };

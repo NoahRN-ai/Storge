@@ -136,52 +136,56 @@ const ProfileModal = ({ user, onClose, onProfileUpdated }) => {
   if (!user) return null;
 
   return (
-    <div className="profile-modal-overlay">
-      <div className="profile-modal">
+    <div className="modal-overlay"> {/* Changed to generic modal class */}
+      <div className="modal-content profile-modal-specific-styles"> {/* Added specific class for profile modal content */}
         <h2>Edit Profile</h2>
         {error && <p className="error-message">{error}</p>}
         {successMessage && <p className="success-message">{successMessage}</p>}
         <form onSubmit={handleSubmit}>
           {avatarUrl && !avatarFile && (
-            <div style={{ marginBottom: '10px', textAlign: 'center' }}>
-              <img src={avatarUrl} alt="Current avatar" style={{ width: '80px', height: '80px', borderRadius: '50%' }} />
+            <div className="avatar-preview-container">
+              <img src={avatarUrl} alt="Current avatar" className="avatar-preview-image" />
             </div>
           )}
-          <div>
+          <div className="form-group">
             <label htmlFor="avatar">Avatar (PNG, JPG, GIF - max 2MB):</label>
             <input
               type="file"
               id="avatar"
+              className="form-input-file" // Added class for potential styling
               accept="image/png, image/jpeg, image/gif"
               onChange={handleAvatarChange}
               disabled={loading}
             />
           </div>
-          <div>
+          <div className="form-group">
             <label htmlFor="username">Username:</label>
             <input
               type="text"
               id="username"
+              className="form-input" // Added class for potential styling
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               disabled={loading}
             />
           </div>
-          <div>
+          <div className="form-group">
             <label htmlFor="bio">Bio:</label>
             <textarea
               id="bio"
+              className="form-textarea" // Added class for potential styling
               value={bio}
               onChange={(e) => setBio(e.target.value)}
               placeholder="Tell us about yourself"
               disabled={loading}
             />
           </div>
-          <div>
+          <div className="form-group">
             <label htmlFor="statusMessage">Status Message:</label>
             <input
               type="text"
               id="statusMessage"
+              className="form-input" // Added class for potential styling
               value={statusMessage}
               onChange={(e) => setStatusMessage(e.target.value)}
               placeholder="What's on your mind?"
@@ -189,73 +193,16 @@ const ProfileModal = ({ user, onClose, onProfileUpdated }) => {
             />
           </div>
           <div className="modal-actions">
-            <button type="submit" disabled={loading}>
+            <button type="submit" disabled={loading} className="button button-primary">
               {loading ? 'Saving...' : 'Save Profile'}
             </button>
-            <button type="button" onClick={onClose} disabled={loading}>
+            <button type="button" onClick={onClose} disabled={loading} className="button button-secondary">
               Close
             </button>
           </div>
         </form>
       </div>
-      <style jsx>{`
-        .profile-modal-overlay {
-          position: fixed;
-          top: 0;
-          left: 0;
-          width: 100%;
-          height: 100%;
-          background-color: rgba(0, 0, 0, 0.5);
-          display: flex;
-          justify-content: center;
-          align-items: center;
-          z-index: 1000;
-        }
-        .profile-modal {
-          background: white;
-          padding: 20px;
-          border-radius: 8px;
-          box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-          width: 90%;
-          max-width: 400px;
-        }
-        .profile-modal h2 {
-          margin-top: 0;
-        }
-        .profile-modal form div {
-          margin-bottom: 15px;
-        }
-        .profile-modal label {
-          display: block;
-          margin-bottom: 5px;
-          font-weight: bold;
-        }
-        .profile-modal input[type="text"],
-        .profile-modal textarea {
-          width: calc(100% - 20px);
-          padding: 8px 10px;
-          border: 1px solid #ccc;
-          border-radius: 4px;
-        }
-        .profile-modal textarea {
-          min-height: 80px;
-          resize: vertical;
-        }
-        .error-message {
-          color: red;
-          margin-bottom: 10px;
-        }
-        .success-message {
-          color: green;
-          margin-bottom: 10px;
-        }
-        .modal-actions {
-          display: flex;
-          justify-content: flex-end;
-          gap: 10px;
-          margin-top: 20px;
-        }
-      `}</style>
+      {/* <style jsx>{` ... `}</style>  Removed inline styles, will move to index.css */}
     </div>
   );
 };

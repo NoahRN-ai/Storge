@@ -359,18 +359,24 @@ const ChatPage = ({ userProfile, onLogout, onProfileUpdate, currentRoomId }) => 
             ></span>
           </span>
         )}
-        {notificationPermission === 'default' && (
-          <button onClick={requestNotificationPermission} className="notification-button" title="Enable Notifications">
-            🔔 Enable Notifications
+        <div className="chat-header-actions"> {/* New container for buttons */}
+          {notificationPermission === 'default' && (
+            <button onClick={requestNotificationPermission} className="button button-icon notification-button" title="Enable Notifications">
+              🔔 <span className="button-text">Notifications</span>
+            </button>
+          )}
+          {notificationPermission === 'denied' && (
+            <button className="button button-icon notification-button-denied" title="Notifications Blocked" disabled>
+              🔕 <span className="button-text">Blocked</span>
+            </button>
+          )}
+          <button onClick={() => setIsProfileModalOpen(true)} className="button button-icon profile-button" title="Edit Profile">
+            👤 <span className="button-text">Profile</span>
           </button>
-        )}
-         {notificationPermission === 'denied' && (
-          <button className="notification-button-denied" title="Notifications Blocked" disabled>
-            🔕 Notifications Blocked
+          <button onClick={onLogout} className="button button-icon logout-button" title="Logout">
+            🚪 <span className="button-text">Logout</span>
           </button>
-        )}
-        <button onClick={() => setIsProfileModalOpen(true)} className="profile-button">Profile</button>
-        <button onClick={onLogout} className="logout-button">Logout</button>
+        </div>
       </header>
       {isProfileModalOpen && userProfile && (
         <ProfileModal
