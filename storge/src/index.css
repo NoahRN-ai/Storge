@@ -62,23 +62,44 @@ input[type="password"]:focus,
 button {
  padding: 0.8rem 1.2rem;
  border-radius: 6px;
- border: none;
+ border: 1px solid transparent; /* Added for consistency and potential focus/active states */
  background-color: #c792ea;
- color: #1a1a1a;
+ color: #1a1a1a; /* Ensuring contrast for text on button */
  font-size: 1.1rem;
  font-weight: bold;
  cursor: pointer;
- transition: background-color 0.2s ease;
+ transition: background-color 0.2s ease, border-color 0.2s ease, transform 0.1s ease-out;
+ outline: none; /* Remove default outline, will handle with focus-visible */
 }
 
 button:hover {
  background-color: #b072d1;
+ border-color: #a062c1; /* Slightly darker border on hover */
+}
+
+button:active {
+ background-color: #a062c1; /* Darker for active state */
+ transform: translateY(1px) scale(0.98); /* Subtle press effect */
+ border-color: #8a53a8;
+}
+
+button:focus {
+  /* Keeping default focus for now, can be overridden by focus-visible */
+  /* outline: none; */ /* If you want to remove default focus ring entirely before focus-visible */
+}
+
+button:focus-visible {
+ outline: 2px solid #e0b7ff; /* A lighter purple, clearly visible focus ring */
+ outline-offset: 2px;
+ border-color: #c792ea; /* Match border to base color when focused */
 }
 
 button:disabled {
  background-color: #555;
  color: #888;
  cursor: not-allowed;
+ border-color: #444; /* Match border for disabled state */
+ transform: none; /* No transform for disabled state */
 }
 
 /* Chat Page Specifics */
@@ -199,4 +220,80 @@ button:disabled {
 .logout-button:hover {
   background-color: #333;
   color: #fff;
+  border-color: #777; /* Slightly enhance border on hover */
+}
+
+.logout-button:active {
+  background-color: #222; /* Darker on active */
+  color: #eee;
+  transform: translateY(1px); /* Subtle press effect */
+}
+
+.logout-button:focus {
+  /* outline: none; */ /* Optional: remove default if you only want focus-visible */
+}
+
+.logout-button:focus-visible {
+  outline: 2px solid #c792ea; /* Use theme color for focus */
+  outline-offset: 1px;
+  border-color: #777;
+}
+
+/* Status Indicator Styling */
+.status-indicator {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-left: 8px;
+  vertical-align: middle;
+  border: 1px solid #1a1a1a; /* Add a border to make it pop a bit from background */
+}
+
+.status-indicator.online {
+  background-color: #4caf50; /* Green for online */
+}
+
+.status-indicator.offline {
+  background-color: #757575; /* Gray for offline */
+}
+
+/* User display in header adjustments */
+.chat-header .user-display {
+  display: flex;
+  align-items: center;
+  font-size: 0.9rem;
+  color: #ccc;
+}
+
+.message-author {
+  display: flex; /* To align username and status indicator */
+  align-items: center; /* Vertically align items in message-author */
+  font-size: 0.75rem;
+  color: #aaa;
+  margin-bottom: 0.25rem;
+}
+
+/* Ensure message author status indicator is slightly smaller or adjusted if needed */
+.message-author .status-indicator {
+  width: 8px;
+  height: 8px;
+  margin-left: 6px; /* A bit closer for message authors */
+  /* border: none; Optional: remove border if too busy for message list */
+}
+
+/* Typing Indicator Container Styling */
+.typing-indicator-container {
+  height: 20px; /* Allocate space for the indicator */
+  padding: 0 10px; /* Align with message list padding if any */
+  text-align: left;
+  font-size: 0.85rem;
+  color: #aaa;
+  font-style: italic;
+  min-height: 20px; /* Ensure it doesn't collapse when empty */
+}
+
+.typing-indicator-container p {
+  margin: 0;
+  line-height: 20px; /* Vertically center text in the container */
 }

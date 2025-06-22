@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
-import PropTypes from 'prop-types';
+// PropTypes removed as onLoginSuccess is no longer passing data upwards in the same way
+// import PropTypes from 'prop-types';
 import { supabase } from '../supabaseClient'; // Import the Supabase client
 
-const LoginPage = ({ onLoginSuccess }) => {
+// onLoginSuccess is not strictly needed anymore as App.jsx listens to onAuthStateChange
+const LoginPage = (/*{ onLoginSuccess }*/) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -30,16 +32,20 @@ const LoginPage = ({ onLoginSuccess }) => {
         throw signInError;
       }
 
-      if (data.user) {
-        onLoginSuccess(data.user); // Pass user object on success
-      } else {
-        throw new Error('Login failed. Please try again.'); // Should not happen if no error
+      // onLoginSuccess(data.user) is removed. App.jsx's onAuthStateChange will handle it.
+      // setLoading(false) will be handled by the effect of onAuthStateChange in App.jsx
+      // or by error catching here.
+      if (!data.user) { // Should ideally not happen if no error
+        throw new Error('Login failed. Please try again.');
       }
+      // Success is handled by onAuthStateChange in App.jsx
+      // No explicit call to onLoginSuccess needed here to pass user data
+
     } catch (err) {
       setError(err.message || 'Failed to sign in.');
-      setLoading(false);
+    } finally {
+      setLoading(false); // Ensure loading is reset in all cases for this action
     }
-    // setLoading(false) will be handled by onLoginSuccess or error catching
   };
 
   const handleSignUp = async (event) => {
@@ -56,18 +62,27 @@ const LoginPage = ({ onLoginSuccess }) => {
       const { data, error: signUpError } = await supabase.auth.signUp({
         email,
         password,
+        // You can add options here, like data for the user metadata if your trigger doesn't cover everything
+        // options: {
+        //   data: { username: email.split('@')[0] } // This would be user_metadata, not profile table directly
+        // }
       });
 
       if (signUpError) {
         throw signUpError;
       }
 
+      // The new user trigger in Supabase will create the profile.
+      // The onAuthStateChange listener in App.jsx will then fetch this profile.
       if (data.user && data.user.identities && data.user.identities.length === 0) {
-        setMessage('User already exists. Please try to sign in or recover your password.');
+        // This condition from Supabase might indicate the user already exists but isn't confirmed.
+        // Or, if email confirmation is disabled, it might mean they exist and sign-in should be used.
+        setMessage('User already exists or confirmation pending. Please try to sign in or check your email for a confirmation link.');
       } else if (data.user) {
-        setMessage('Sign up successful! Please check your email to confirm your account.');
+        setMessage('Sign up successful! Please check your email to confirm your account. Your profile is being created.');
       } else {
-         setMessage('Sign up successful! Please check your email to confirm your account. If you don\'t see it, try signing in.');
+         // This case might not be hit if data.user is null and signUpError is also null, but included for safety.
+         setMessage('Sign up process initiated. If you don\'t receive a confirmation email, your account may already exist or requires confirmation.');
       }
     } catch (err) {
       setError(err.message || 'Failed to sign up.');
@@ -88,7 +103,7 @@ const LoginPage = ({ onLoginSuccess }) => {
 
     try {
       const { error: recoveryError } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: window.location.origin, // Or your specific password reset page
+        redirectTo: window.location.origin + '/', // Redirect to home page after password reset from email
       });
 
       if (recoveryError) {
@@ -130,14 +145,14 @@ const LoginPage = ({ onLoginSuccess }) => {
       <h1>Storge</h1>
       <form className="login-form" onSubmit={currentFormSubmit}>
         <input
-          type="email" // Changed from text to email
+          type="email"
           name="email"
           placeholder="Email"
           value={email}
           onChange={(e) => setEmail(e.target.value.toLowerCase())}
           autoComplete="email"
         />
-        {authMode !== 'recoverPassword' && ( // Password not needed for recovery mode
+        {authMode !== 'recoverPassword' && (
           <input
             type="password"
             name="password"
@@ -179,8 +194,8 @@ const LoginPage = ({ onLoginSuccess }) => {
   );
 };
 
-LoginPage.propTypes = {
-  onLoginSuccess: PropTypes.func.isRequired,
-};
+// LoginPage.propTypes = {
+//   onLoginSuccess: PropTypes.func.isRequired, // No longer required
+// };
 
 export default LoginPage;
