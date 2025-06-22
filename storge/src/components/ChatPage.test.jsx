@@ -6,31 +6,45 @@ import ChatPage from './ChatPage';
 import { supabase, resetMockSupabase, mockUser as defaultMockUserProfile } from '../__mocks__/supabaseClient';
 
 // Mock the supabaseClient module
-vi.mock('../supabaseClient', async (importOriginal) => {
-  const actual = await importOriginal();
-  const mock = await import('../__mocks__/supabaseClient'); // Ensure this path is correct
+vi.mock('../supabaseClient', async () => {
+  const mock = await import('../__mocks__/supabaseClient');
   return {
-    ...actual,
-    supabase: mock.supabase,
-    mockUser: mock.mockUser, // if you export it from mock
-    resetMockSupabase: mock.resetMockSupabase,
+    supabase: mock.supabase, // Provide only the mocked supabase instance for the '../supabaseClient' path
   };
 });
 
-const mockUserProfile = {
+// Helpers and mock data are imported directly from the __mocks__ file by the test
+import { resetMockSupabase, mockUser as defaultMockUserProfile } from '../__mocks__/supabaseClient';
+
+
+const mockUserProfile = { // userProfile prop passed to ChatPage
   id: defaultMockUserProfile.id,
   username: defaultMockUserProfile.username,
-  // Add bio and status_message if ChatPage uses them directly, though it gets them via userProfile prop
+  avatar_url: 'https://mock.url/user-123.png' // Current user's avatar
 };
 
 // Sample messages for a specific room
 const MOCK_ROOM_ID = 'room-test-123';
 const mockRoomMessages = [
-  { id: 'msg1', room_id: MOCK_ROOM_ID, text: 'Hello Room', created_at: new Date().toISOString(), profile_id: 'user-other', profiles: { username: 'OtherUserInRoom' } },
-  { id: 'msg2', room_id: MOCK_ROOM_ID, text: 'Hi Room', created_at: new Date().toISOString(), profile_id: mockUserProfile.id, profiles: { username: mockUserProfile.username } },
+  {
+    id: 'msg1',
+    room_id: MOCK_ROOM_ID,
+    text: 'Hello Room',
+    created_at: new Date().toISOString(),
+    profile_id: 'user-other',
+    profiles: { username: 'OtherUserInRoom', avatar_url: 'https://mock.url/other-user.png' }
+  },
+  {
+    id: 'msg2',
+    room_id: MOCK_ROOM_ID,
+    text: 'Hi Room',
+    created_at: new Date().toISOString(),
+    profile_id: mockUserProfile.id,
+    profiles: { username: mockUserProfile.username, avatar_url: mockUserProfile.avatar_url }
+  },
 ];
-const anotherRoomMessages = [ // Messages for a different room, should not be displayed
-  { id: 'msg3', room_id: 'other-room-456', text: 'Message for another room', created_at: new Date().toISOString(), profile_id: 'user-other', profiles: { username: 'AnotherUser' } },
+const anotherRoomMessages = [
+  { id: 'msg3', room_id: 'other-room-456', text: 'Message for another room', created_at: new Date().toISOString(), profile_id: 'user-other', profiles: { username: 'AnotherUser', avatar_url: null } },
 ];
 
 
@@ -253,6 +267,202 @@ describe('ChatPage Component (Room Specific)', () => {
 
   });
 
+  it('displays user avatars in messages or placeholders', async () => {
+    render(<ChatPage {...defaultProps} />);
+    await waitFor(() => {
+      // Message from OtherUserInRoom (has avatar_url)
+      const otherUserAvatar = screen.getByAltText("OtherUserInRoom's avatar");
+      expect(otherUserAvatar).toBeInTheDocument();
+      expect(otherUserAvatar).toHaveAttribute('src', mockRoomMessages[0].profiles.avatar_url);
+
+      // Message from current user (mockUserProfile, has avatar_url) - current user's messages don't show author line by default
+      // To test this, we'd need a message from another user who has a null avatar_url
+    });
+
+    // Test placeholder (add a message from a user with null avatar_url to mockRoomMessages for this)
+    const messagesWithNullAvatar = [
+      ...mockRoomMessages,
+      { id: 'msg-no-avatar', room_id: MOCK_ROOM_ID, text: 'No Avatar Here', created_at: new Date().toISOString(), profile_id: 'user-no-avatar', profiles: { username: 'NoAvatarUser', avatar_url: null } }
+    ];
+    global.mockMessagesDb = messagesWithNullAvatar; // Update mock DB for this specific check
+
+    render(<ChatPage {...defaultProps} />); // Re-render with updated messages
+    await waitFor(() => {
+      expect(screen.getByText('No Avatar Here')).toBeInTheDocument();
+      const placeholder = screen.getByText('N'); // Placeholder for 'NoAvatarUser'
+      expect(placeholder).toHaveClass('chat-avatar-placeholder');
+    });
+  });
+
+  describe('Browser Notifications', () => {
+    let mockNotification;
+    let originalNotificationPermission;
+
+    beforeEach(() => {
+      mockNotification = vi.fn(); // Mock for `new Notification()`
+      originalNotificationPermission = Notification.permission; // Store original
+
+      // Mock Notification API
+      global.Notification = {
+        requestPermission: vi.fn().mockResolvedValue('default'),
+        permission: 'default', // Initial state
+        // @ts-ignore
+        prototype: { close: vi.fn() } // Mock close method on prototype
+      };
+      vi.spyOn(global.Notification, 'permission', 'get'); // Spy on getter
+      global.Notification.prototype.constructor = mockNotification; // Mock the constructor
+
+      // Mock document.hidden
+      Object.defineProperty(document, 'hidden', { value: false, writable: true });
+    });
+
+    afterEach(() => {
+      // Restore Notification API
+      global.Notification.permission = originalNotificationPermission;
+      vi.restoreAllMocks(); // This should restore spied getters too
+      delete global.Notification.prototype.constructor; // Clean up constructor mock
+    });
+
+    it('shows "Enable Notifications" button when permission is default', () => {
+      global.Notification.permission = 'default';
+      render(<ChatPage {...defaultProps} />);
+      expect(screen.getByRole('button', { name: /🔔 Enable Notifications/i })).toBeInTheDocument();
+    });
+
+    it('shows "Notifications Blocked" button when permission is denied', () => {
+      global.Notification.permission = 'denied';
+      render(<ChatPage {...defaultProps} />);
+      expect(screen.getByRole('button', { name: /🔕 Notifications Blocked/i })).toBeInTheDocument();
+    });
+
+    it('requests permission when "Enable Notifications" button is clicked', async () => {
+      const user = userEvent.setup();
+      global.Notification.permission = 'default';
+      Notification.requestPermission.mockResolvedValueOnce('granted'); // Simulate granting permission
+
+      render(<ChatPage {...defaultProps} />);
+      const enableButton = screen.getByRole('button', { name: /🔔 Enable Notifications/i });
+      await user.click(enableButton);
+
+      expect(Notification.requestPermission).toHaveBeenCalledTimes(1);
+      await waitFor(() => { // Wait for state update
+        expect(screen.queryByRole('button', { name: /🔔 Enable Notifications/i })).not.toBeInTheDocument();
+      });
+    });
+
+    it('shows notification for new message when tab is hidden and permission granted', async () => {
+      global.Notification.permission = 'granted';
+      // @ts-ignore
+      document.hidden = true; // Simulate tab being hidden
+
+      render(<ChatPage {...defaultProps} />);
+      await waitFor(() => expect(screen.getByText('Hello Room')).toBeInTheDocument()); // Ensure page loaded
+
+      const newMessagePayload = {
+        new: {
+          id: 'msg-notify',
+          room_id: MOCK_ROOM_ID,
+          text: 'Notification Test!',
+          created_at: new Date().toISOString(),
+          profile_id: 'user-notify-sender', // Different from current user
+          profiles: { username: 'NotifySender', avatar_url: 'https://mock.url/notify-sender.png' }
+        },
+        table: 'messages', schema: 'public', event: 'INSERT',
+      };
+
+      act(() => {
+        mockSupabaseChannelInstance.simulatePostgresChange(newMessagePayload);
+      });
+
+      await waitFor(() => {
+        expect(mockNotification).toHaveBeenCalledWith(
+          'New message from NotifySender',
+          expect.objectContaining({
+            body: 'Notification Test!',
+            icon: 'https://mock.url/notify-sender.png',
+            tag: MOCK_ROOM_ID,
+            data: { roomId: MOCK_ROOM_ID }
+          })
+        );
+      });
+    });
+
+    it('does NOT show notification if tab is active OR message is from self OR permission not granted', async () => {
+      // Case 1: Tab active
+      global.Notification.permission = 'granted';
+      // @ts-ignore
+      document.hidden = false;
+      render(<ChatPage {...defaultProps} />);
+      await waitFor(() => expect(screen.getByText('Hello Room')).toBeInTheDocument());
+      const msgPayload = { new: { ...mockRoomMessages[0], profile_id: 'other-user-id' /* from other */ } };
+      act(() => mockSupabaseChannelInstance.simulatePostgresChange(msgPayload) );
+      expect(mockNotification).not.toHaveBeenCalled();
+      mockNotification.mockClear();
+
+      // Case 2: Message from self
+      global.Notification.permission = 'granted';
+      // @ts-ignore
+      document.hidden = true;
+      const selfMsgPayload = { new: { ...mockRoomMessages[1], profile_id: mockUserProfile.id /* from self */ } };
+      act(() => mockSupabaseChannelInstance.simulatePostgresChange(selfMsgPayload) );
+      expect(mockNotification).not.toHaveBeenCalled();
+      mockNotification.mockClear();
+
+      // Case 3: Permission not granted
+      global.Notification.permission = 'default';
+      // @ts-ignore
+      document.hidden = true;
+      act(() => mockSupabaseChannelInstance.simulatePostgresChange(msgPayload) );
+      expect(mockNotification).not.toHaveBeenCalled();
+    });
+
+    it('handles notification click (focuses window, logs/alerts for room navigation)', async () => {
+      global.Notification.permission = 'granted';
+      // @ts-ignore
+      document.hidden = true; // Tab is hidden
+      const mockClose = vi.fn();
+      mockNotification.mockImplementation((title, options) => {
+        // Simulate the created notification object
+        return {
+          onclick: null, // Will be assigned by ChatPage's showNotification
+          close: mockClose,
+          title,
+          ...options,
+        };
+      });
+      window.parent.focus = vi.fn(); // Mock window focus
+      window.alert = vi.fn(); // Mock alert
+
+      render(<ChatPage {...defaultProps} />); // currentRoomId is MOCK_ROOM_ID
+      await waitFor(() => expect(screen.getByText('Hello Room')).toBeInTheDocument());
+
+      const OTHER_ROOM_ID = 'other-room-for-notification-click';
+      const newMessageInOtherRoom = {
+        new: { id: 'msg-click', room_id: OTHER_ROOM_ID, text: 'Click me!', created_at: new Date().toISOString(), profile_id: 'clicker', profiles: { username: 'ClickSender' } },
+        table: 'messages', schema: 'public', event: 'INSERT',
+      };
+
+      act(() => {
+        mockSupabaseChannelInstance.simulatePostgresChange(newMessageInOtherRoom);
+      });
+
+      await waitFor(() => expect(mockNotification).toHaveBeenCalled());
+
+      // Simulate the notification click
+      // The `onclick` handler is attached to the instance created by `new Notification`
+      // We need to grab that instance or its `onclick`.
+      const notificationInstance = mockNotification.mock.results[0].value;
+      expect(notificationInstance.onclick).toBeInstanceOf(Function);
+
+      act(() => {
+        notificationInstance.onclick({ target: notificationInstance }); // Simulate click event
+      });
+
+      expect(window.parent.focus).toHaveBeenCalled();
+      expect(window.alert).toHaveBeenCalledWith(expect.stringContaining(OTHER_ROOM_ID)); // Alert for different room
+      expect(mockClose).toHaveBeenCalled(); // Notification should be closed
+    });
+  });
 });
 
 // Helper to wrap state updates in tests

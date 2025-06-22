@@ -6,11 +6,13 @@ import RoomList from './RoomList'; // Adjust path as necessary
 import { supabase, mockUser as defaultMockUser, resetMockSupabase } from '../__mocks__/supabaseClient';
 
 // Mock the supabaseClient module
-vi.mock('../supabaseClient', async (importOriginal) => {
-  const actual = await importOriginal();
+vi.mock('../supabaseClient', async () => {
   const mock = await import('../__mocks__/supabaseClient');
-  return { ...actual, supabase: mock.supabase, mockUser: mock.mockUser };
+  return { supabase: mock.supabase };
 });
+
+// Direct import for helpers
+import { supabase as aliasedSupabase, mockUser as defaultMockUser, resetMockSupabase } from '../__mocks__/supabaseClient';
 
 const mockRoomsData = [
   { id: 'room1', name: 'General Chat', type: 'group', updated_at: new Date().toISOString() },

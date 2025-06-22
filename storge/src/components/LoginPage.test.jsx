@@ -6,16 +6,16 @@ import LoginPage from './LoginPage';
 import { supabase, resetMockSupabase, mockUser } from '../__mocks__/supabaseClient';
 
 // Mock the supabaseClient module
-vi.mock('../supabaseClient', async (importOriginal) => {
-  const actual = await importOriginal();
+vi.mock('../supabaseClient', async () => {
   const mock = await import('../__mocks__/supabaseClient');
   return {
-    ...actual,
     supabase: mock.supabase,
-    mockUser: mock.mockUser, // Make mockUser available if needed directly in tests
-    resetMockSupabase: mock.resetMockSupabase,
   };
 });
+
+// Direct import for helpers
+import { supabase as aliasedSupabase, resetMockSupabase, mockUser } from '../__mocks__/supabaseClient';
+
 
 describe('LoginPage Component', () => {
   beforeEach(() => {

@@ -9,7 +9,8 @@ const ChatPage = ({ userProfile, onLogout, onProfileUpdate, currentRoomId }) => 
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [typingUsers, setTypingUsers] = useState({});
-  const [onlineUsersInRoom, setOnlineUsersInRoom] = useState({}); // Renamed and room-specific
+  const [onlineUsersInRoom, setOnlineUsersInRoom] = useState({});
+  const [notificationPermission, setNotificationPermission] = useState(Notification.permission);
   const typingTimeoutRef = useRef(null);
   const messagesEndRef = useRef(null);
 
@@ -36,7 +37,7 @@ const ChatPage = ({ userProfile, onLogout, onProfileUpdate, currentRoomId }) => 
     const fetchMessages = async () => {
       const { data, error } = await supabase
         .from('messages')
-        .select('id, text, created_at, profile_id, profiles ( username )')
+        .select('id, text, created_at, profile_id, profiles ( username, avatar_url )') // Added avatar_url
         .eq('room_id', currentRoomId) // Filter by room_id
         .order('created_at', { ascending: true });
 
@@ -62,20 +63,48 @@ const ChatPage = ({ userProfile, onLogout, onProfileUpdate, currentRoomId }) => 
           // Ensure message belongs to the current room (double check, though filter should handle)
           if (newMessage.room_id !== currentRoomId) return;
 
-          if (newMessage.profile_id && !newMessage.profiles) {
+          let profileForMessage = newMessage.profiles;
+
+          if (newMessage.profile_id && !profileForMessage) { // If profile is not embedded
             const { data: profileData, error: profileError } = await supabase
               .from('profiles')
-              .select('username')
+              .select('username, avatar_url')
               .eq('id', newMessage.profile_id)
               .single();
             if (profileError) {
               console.error('Error fetching profile for new message:', profileError);
-              newMessage.profiles = { username: 'Unknown' };
+              profileForMessage = { username: 'Unknown', avatar_url: null };
             } else {
-              newMessage.profiles = profileData;
+              profileForMessage = profileData;
+            }
+          } else if (newMessage.profile_id && profileForMessage && !profileForMessage.avatar_url) {
+            // If profile is embedded but missing avatar_url
+            const { data: profileData, error: profileError } = await supabase
+              .from('profiles')
+              .select('avatar_url')
+              .eq('id', newMessage.profile_id)
+              .single();
+            if (!profileError && profileData) {
+              profileForMessage.avatar_url = profileData.avatar_url;
             }
           }
-          setMessages((currentMessages) => [...currentMessages, newMessage]);
+
+          // Update message object with fetched profile if necessary
+          const finalMessage = { ...newMessage, profiles: profileForMessage };
+          setMessages((currentMessages) => [...currentMessages, finalMessage]);
+
+          // Show notification
+          if (document.hidden && finalMessage.profile_id !== userProfile?.id && notificationPermission === 'granted') {
+            showNotification(
+              `New message from ${finalMessage.profiles?.username || 'Unknown User'}`,
+              {
+                body: finalMessage.text,
+                icon: finalMessage.profiles?.avatar_url || '/vite.svg', // Default icon
+                tag: finalMessage.room_id, // Use room_id as tag to group/replace
+                data: { roomId: finalMessage.room_id } // Store room_id for click handling
+              }
+            );
+          }
         }
       )
       .subscribe((status, err) => {
@@ -169,6 +198,65 @@ const ChatPage = ({ userProfile, onLogout, onProfileUpdate, currentRoomId }) => 
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  // Effect for handling document visibility change for notifications
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden && Notification.permission === 'default') {
+        // Optional: Re-prompt or update UI if user comes back and still hasn't granted permission.
+        // For simplicity, we primarily rely on the initial button.
+      }
+      // Update permission state if it changed outside the app (e.g. browser settings)
+      if (Notification.permission !== notificationPermission) {
+        setNotificationPermission(Notification.permission);
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [notificationPermission]);
+
+
+  const requestNotificationPermission = async () => {
+    if (!('Notification' in window)) {
+      alert('This browser does not support desktop notification');
+      return;
+    }
+    const permission = await Notification.requestPermission();
+    setNotificationPermission(permission);
+    if (permission === 'granted') {
+      console.log('Notification permission granted.');
+      // Optionally show a test notification
+      // showNotification("Notifications Enabled!", { body: "You will now receive new message alerts." });
+    } else {
+      console.log('Notification permission denied or dismissed.');
+    }
+  };
+
+  const showNotification = (title, options) => {
+    if (notificationPermission !== 'granted') return;
+
+    const notification = new Notification(title, options);
+
+    notification.onclick = (event) => {
+      window.parent.focus(); // Focus the main window/tab
+      // event.target.close(); // Close notification on click
+
+      // If App.jsx can handle navigation via a prop or context:
+      // onNotificationClick(options.data.roomId);
+      // For now, this is a placeholder. Actual navigation would require App.jsx to handle it.
+      console.log('Notification clicked for room:', options.data?.roomId);
+       if (options.data?.roomId && options.data.roomId !== currentRoomId) {
+         // This is tricky. ChatPage itself cannot directly tell App.jsx to switch rooms
+         // without a callback prop from App.jsx.
+         // For now, we just log. A robust solution needs App.jsx involvement.
+         alert(`Notification for room ${options.data.roomId} clicked. Manual navigation might be needed if not current room.`);
+       }
+       // Close the notification. Some browsers do this automatically.
+       notification.close();
+    };
+  };
 
   const sendTypingEvent = async (isTyping) => {
     if (!userProfile || !roomSpecificChannelName) return;
@@ -271,6 +359,16 @@ const ChatPage = ({ userProfile, onLogout, onProfileUpdate, currentRoomId }) => 
             ></span>
           </span>
         )}
+        {notificationPermission === 'default' && (
+          <button onClick={requestNotificationPermission} className="notification-button" title="Enable Notifications">
+            🔔 Enable Notifications
+          </button>
+        )}
+         {notificationPermission === 'denied' && (
+          <button className="notification-button-denied" title="Notifications Blocked" disabled>
+            🔕 Notifications Blocked
+          </button>
+        )}
         <button onClick={() => setIsProfileModalOpen(true)} className="profile-button">Profile</button>
         <button onClick={onLogout} className="logout-button">Logout</button>
       </header>
@@ -301,6 +399,13 @@ const ChatPage = ({ userProfile, onLogout, onProfileUpdate, currentRoomId }) => 
             >
               {!isSentByCurrentUser && (
                 <div className="message-author">
+                  {msg.profiles?.avatar_url ? (
+                    <img src={msg.profiles.avatar_url} alt={`${authorUsername}'s avatar`} className="chat-avatar-icon" />
+                  ) : (
+                    <div className="chat-avatar-placeholder">
+                      {authorUsername ? authorUsername.charAt(0).toUpperCase() : '?'}
+                    </div>
+                  )}
                   {authorUsername}
                   <span
                     title={authorIsOnline ? 'Online' : 'Offline'}
@@ -349,8 +454,9 @@ ChatPage.propTypes = {
   userProfile: PropTypes.shape({
     id: PropTypes.string.isRequired,
     username: PropTypes.string.isRequired,
-    bio: PropTypes.string, // Added bio
-    status_message: PropTypes.string, // Added status_message
+    bio: PropTypes.string,
+    status_message: PropTypes.string,
+    avatar_url: PropTypes.string, // Added avatar_url
     // online_status: PropTypes.bool, // This is now primarily handled by presence
   }).isRequired,
   onLogout: PropTypes.func.isRequired,

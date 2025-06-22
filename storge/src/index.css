@@ -389,3 +389,58 @@ body, html {
   border-color: #777;
 }
 /* Add other states (active, focus-visible) similar to logout-button if desired */
+
+/* Chat Avatar Styles */
+.chat-avatar-icon {
+  width: 24px; /* Adjust size as needed */
+  height: 24px;
+  border-radius: 50%;
+  margin-right: 8px;
+  object-fit: cover; /* Ensure image covers the area well */
+  vertical-align: middle;
+}
+
+.chat-avatar-placeholder {
+  width: 24px; /* Match icon size */
+  height: 24px;
+  border-radius: 50%;
+  margin-right: 8px;
+  background-color: #555; /* Placeholder background */
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px; /* Adjust font size for initial */
+  font-weight: bold;
+  vertical-align: middle;
+}
+
+.message-author {
+  /* Ensure message author items are vertically aligned with avatar */
+  display: flex;
+  align-items: center;
+  /* ... existing styles ... */
+}
+
+/* Notification Buttons in Chat Header */
+.notification-button, .notification-button-denied {
+  position: absolute;
+  top: 15px;
+  right: 180px; /* Adjust based on other buttons */
+  background-color: transparent;
+  color: #aaa;
+  font-size: 0.8rem;
+  padding: 5px 8px;
+  border: 1px solid #555;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.notification-button:hover {
+  background-color: #333;
+  color: #fff;
+  border-color: #777;
+}
+.notification-button-denied {
+  cursor: not-allowed;
+  color: #777;
+}

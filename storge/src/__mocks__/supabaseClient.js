@@ -209,15 +209,33 @@ export const supabase = {
     // supabase._channels[channelName] = mockChannel;
     return mockChannel;
   }),
-  // supabase._channels = {}, // To store named channel mocks if needed for specific tests
-    on: vi.fn().mockReturnThis(),
-    subscribe: vi.fn((callback) => {
-        // Simulate successful subscription
-        // if (callback) callback('SUBSCRIBED');
-        return { unsubscribe: vi.fn() };
+  // NOTE: The stray on, subscribe, send methods that were here previously have been removed.
+  // That was the source of the syntax error at line 220.
+  storage: {
+    from: vi.fn().mockImplementation((bucketName) => {
+      // console.log(`Mock supabase.storage.from('${bucketName}') called`);
+      return {
+        upload: vi.fn().mockImplementation(async (filePath, file, options) => {
+          // console.log(`Mock storage.upload called for path: ${filePath}`, file, options);
+          // Simulate a successful upload
+          // In a more complex mock, you could store the file in a mock storage object.
+          if (filePath.includes('fail_upload')) { // For testing failure
+            return { data: null, error: { message: 'Simulated storage upload error' } };
+          }
+          return { data: { path: filePath }, error: null };
+        }),
+        getPublicUrl: vi.fn().mockImplementation((filePath) => {
+          // console.log(`Mock storage.getPublicUrl called for path: ${filePath}`);
+          if (filePath.includes('fail_publicurl')) { // For testing failure
+             return { data: { publicUrl: null }, error: { message: 'Simulated public URL error' } };
+          }
+          // Simulate returning a public URL. This URL doesn't have to be real for the mock.
+          return { data: { publicUrl: `https://mock.supabase.co/storage/v1/object/public/${bucketName}/${filePath}` }, error: null };
+        }),
+        // Add other storage methods like download, remove, list if needed for tests
+      };
     }),
-    send: vi.fn().mockResolvedValue('ok'),
-  }),
+  },
   removeChannel: vi.fn(),
 };
 
