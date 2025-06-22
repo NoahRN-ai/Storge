@@ -16,24 +16,23 @@ const LoginPage = ({ onLoginSuccess }) => {
   setError('');
 
   try {
-   // Get the base URL from the Supabase client
-   const { data: { supabaseUrl } } = supabase.functions;
-   const functionUrl = `${supabaseUrl}/storge-login`;
+    const { data, error: functionError } = await supabase.functions.invoke('storge-login', {
+      body: { username, pin }, // Supabase client stringifies the body by default
+    });
 
-   const response = await fetch(functionUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username, pin }),
-   });
+    if (functionError) {
+      // Handle Supabase specific errors (e.g., network issues, function not found)
+      throw new Error(functionError.message || 'Function invocation failed.');
+    }
 
-   const result = await response.json();
+    if (data && data.error) {
+      // Handle errors returned by the function itself (e.g., invalid PIN)
+      throw new Error(data.error || 'Login failed.');
+    }
 
-   if (!response.ok) {
-    throw new Error(result.error || 'Login failed.');
-   }
-
-   // On success, call the callback function passed from App.jsx
-   onLoginSuccess(username);
+    // On success, call the callback function passed from App.jsx
+    // The actual success message from the function is in data.message if needed
+    onLoginSuccess(username);
 
   } catch (err) {
    setError(err.message);
@@ -45,16 +44,14 @@ const LoginPage = ({ onLoginSuccess }) => {
   <div>
    <h1>Storge</h1>
    <form className="login-form" onSubmit={handleFormSubmit}>
-    <select
-     name="username"
-     value={username}
-     onChange={(e) => setUsername(e.target.value)}
-    >
-     <option value="" disabled>Who are you?</option>
-     <option value="shane">shane</option>
-     <option value="hazel">hazel</option>
-     <option value="willem">willem</option>
-    </select>
+    <input
+      type="text"
+      name="username"
+      placeholder="Username"
+      value={username}
+      onChange={(e) => setUsername(e.target.value.toLowerCase())} // Convert to lowercase for consistency
+      autoComplete="username"
+    />
     <input
      type="password"
      name="pin"
