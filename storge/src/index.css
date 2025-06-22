@@ -133,10 +133,6 @@ button:disabled {
  flex-grow: 1;
 }
 
-/* --- Append this to the end of the file --- */
-
-/* Merged .messages-list styles into the block above. */
-
 .message-item {
  display: flex;
  flex-direction: column;
@@ -182,8 +178,6 @@ button:disabled {
  text-align: left;
  margin-left: 0.5rem;
 }
-
-/* --- Append this to the end of the file --- */
 
 /* Timestamp Styling */
 .message-timestamp {

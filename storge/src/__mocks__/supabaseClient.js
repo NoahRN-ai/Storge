@@ -10,16 +10,13 @@ let authChangeCallback = null;
 export const supabase = {
   auth: {
     getSession: vi.fn().mockImplementation(() => {
-      // console.log('Mock getSession called, returning:', currentSession ? { data: { session: currentSession } } : { data: { session: null } });
       return Promise.resolve(currentSession ? { data: { session: currentSession } } : { data: { session: null } });
     }),
     onAuthStateChange: vi.fn().mockImplementation((callback) => {
-      // console.log('Mock onAuthStateChange registered');
       authChangeCallback = callback;
       return { data: { subscription: { unsubscribe: vi.fn() } } };
     }),
     signOut: vi.fn().mockImplementation(() => {
-      // console.log('Mock signOut called');
       const oldSession = currentSession;
       currentSession = null;
       if (authChangeCallback) {
@@ -27,15 +24,45 @@ export const supabase = {
       }
       return Promise.resolve({ error: null });
     }),
-    // Add mock implementations for signInWithPassword, signUp, etc. if needed for LoginPage tests
+    signInWithPassword: vi.fn().mockImplementation(async ({ email, password }) => {
+      if (password === 'correctpassword') {
+        const session = { user: mockUser, access_token: 'mock-token' };
+        currentSession = session;
+        if (authChangeCallback) {
+          authChangeCallback('SIGNED_IN', session);
+        }
+        return { data: { session, user: mockUser }, error: null };
+      } else {
+        return { data: { session: null, user: null }, error: { message: 'Invalid login credentials' } };
+      }
+    }),
+    signUp: vi.fn().mockImplementation(async ({ email, password, options }) => {
+      // Simulate new user, or existing unconfirmed user for different test cases
+      if (email === 'new@example.com') {
+        const newUser = { id: 'new-user-id', email, ...options?.data };
+        // For signUp, session might be null until confirmation, or a session is returned if auto-confirm is on.
+        // Let's assume auto-confirm is off for this mock, so user is created but needs confirmation.
+        // The onAuthStateChange would typically fire with a user but no active session yet, or after confirmation.
+        // For simplicity here, we'll just return the user object.
+        // In a real scenario, App.jsx's onAuthStateChange would handle the profile creation via trigger.
+        return { data: { user: newUser, session: null }, error: null };
+      } else if (email === 'exists@example.com') {
+        return { data: { user: null, session: null }, error: { message: 'User already registered' } };
+      }
+      return { data: { user: null, session: null }, error: { message: 'Sign up failed' } };
+    }),
+    resetPasswordForEmail: vi.fn().mockImplementation(async (email) => {
+      if (email === 'exists@example.com') {
+        return { data: {}, error: null };
+      }
+      return { data: {}, error: { message: 'User not found or error sending email' } };
+    }),
   },
   from: vi.fn().mockImplementation((tableName) => {
-    // console.log(`Mock from called with table: ${tableName}`);
     if (tableName === 'profiles') {
       return {
         select: vi.fn().mockReturnThis(),
         eq: vi.fn().mockImplementation((column, value) => {
-          // console.log(`Mock eq called on profiles: ${column} = ${value}`);
           if (column === 'id' && value === mockUser.id) {
             return {
               single: vi.fn().mockResolvedValue({ data: mockProfile, error: null }),
@@ -46,10 +73,8 @@ export const supabase = {
           };
         }),
         update: vi.fn().mockImplementation((dataToUpdate) => {
-          // console.log('Mock profiles update called with:', dataToUpdate);
           return {
             eq: vi.fn().mockImplementation((col, val) => {
-              // console.log(`Mock profiles update eq: ${col} = ${val}`);
               return Promise.resolve({ error: null }); // Assume update is successful
             }),
           };
