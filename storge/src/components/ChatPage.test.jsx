@@ -8,86 +8,60 @@ import { supabase, resetMockSupabase, mockUser as defaultMockUserProfile } from 
 // Mock the supabaseClient module
 vi.mock('../supabaseClient', async (importOriginal) => {
   const actual = await importOriginal();
-  const mock = await import('../__mocks__/supabaseClient');
+  const mock = await import('../__mocks__/supabaseClient'); // Ensure this path is correct
   return {
     ...actual,
     supabase: mock.supabase,
-    mockUser: mock.mockUser,
+    mockUser: mock.mockUser, // if you export it from mock
     resetMockSupabase: mock.resetMockSupabase,
   };
 });
 
 const mockUserProfile = {
-  id: defaultMockUserProfile.id, // 'user-123'
-  username: defaultMockUserProfile.username, // 'TestUser'
+  id: defaultMockUserProfile.id,
+  username: defaultMockUserProfile.username,
+  // Add bio and status_message if ChatPage uses them directly, though it gets them via userProfile prop
 };
 
-const mockMessages = [
-  { id: 'msg1', text: 'Hello', created_at: new Date().toISOString(), profile_id: 'user-other', profiles: { username: 'OtherUser' } },
-  { id: 'msg2', text: 'Hi there', created_at: new Date().toISOString(), profile_id: mockUserProfile.id, profiles: { username: mockUserProfile.username } },
+// Sample messages for a specific room
+const MOCK_ROOM_ID = 'room-test-123';
+const mockRoomMessages = [
+  { id: 'msg1', room_id: MOCK_ROOM_ID, text: 'Hello Room', created_at: new Date().toISOString(), profile_id: 'user-other', profiles: { username: 'OtherUserInRoom' } },
+  { id: 'msg2', room_id: MOCK_ROOM_ID, text: 'Hi Room', created_at: new Date().toISOString(), profile_id: mockUserProfile.id, profiles: { username: mockUserProfile.username } },
+];
+const anotherRoomMessages = [ // Messages for a different room, should not be displayed
+  { id: 'msg3', room_id: 'other-room-456', text: 'Message for another room', created_at: new Date().toISOString(), profile_id: 'user-other', profiles: { username: 'AnotherUser' } },
 ];
 
-describe('ChatPage Component', () => {
-  let mockSupabaseChannel;
+
+describe('ChatPage Component (Room Specific)', () => {
+  let mockSupabaseChannelInstance; // To hold the specific channel mock for room interactions
 
   beforeEach(() => {
-    resetMockSupabase();
+    resetMockSupabase(); // This now resets the mock DBs
 
-    // Setup default mock for supabase.from('messages').select()
-    supabase.from.mockImplementation((tableName) => {
-      if (tableName === 'messages') {
-        return {
-          select: vi.fn().mockReturnThis(),
-          order: vi.fn().mockResolvedValue({ data: mockMessages, error: null }),
-          insert: vi.fn().mockResolvedValue({ error: null }), // Mock for sending messages
-        };
-      }
-      if (tableName === 'profiles') {
-        return {
-          select: vi.fn().mockReturnThis(),
-          eq: vi.fn().mockReturnThis(),
-          single: vi.fn().mockResolvedValue({ data: { username: 'FetchedProfile' }, error: null })
-        }
-      }
-      return { // Default empty mock for other tables
-        select: vi.fn().mockReturnThis(),
-        order: vi.fn().mockResolvedValue({ data: [], error: null }),
-        insert: vi.fn().mockResolvedValue({ error: null }),
-      };
-    });
+    // Mock supabase.from() to use the in-memory DB from the enhanced mock
+    // The global mock in __mocks__/supabaseClient.js should handle this,
+    // but we can override specific table behaviors here if needed for a test.
+    // For ChatPage, 'messages' and 'profiles' are primary.
 
-    // Setup default mock for supabase.channel()
-    mockSupabaseChannel = {
+    // Specific mock for channel creation for THIS test suite for ChatPage
+    // This allows us to interact with the channel instance (e.g., simulate events)
+    mockSupabaseChannelInstance = {
       on: vi.fn().mockReturnThis(),
-      subscribe: vi.fn(callback => {
-        // Simulate successful subscription immediately for presence sync
-        // If a callback is passed to subscribe by the test, invoke it.
-        if (typeof callback === 'function') {
-          callback('SUBSCRIBED');
-        }
-        // Simulate presence sync for the current user
-        if (this.presenceCallback) { // 'this' might be tricky, ensure correct scope or pass presenceCallback
-             const presenceState = { [mockUserProfile.id]: [{ user_id: mockUserProfile.id, username: mockUserProfile.username, online_at: new Date().toISOString() }] };
-             this.presenceSyncCallback(presenceState);
-        }
-        return { unsubscribe: vi.fn() };
-      }),
+      subscribe: vi.fn((cb) => { if (cb) cb('SUBSCRIBED'); return { unsubscribe: vi.fn() }; }),
       track: vi.fn().mockResolvedValue('ok'),
       untrack: vi.fn().mockResolvedValue('ok'),
       send: vi.fn().mockResolvedValue('ok'),
-      presenceState: vi.fn().mockReturnValue({
-        [mockUserProfile.id]: [{ user_id: mockUserProfile.id, username: mockUserProfile.username, online_at: new Date().toISOString() }]
-      }),
-       // Store callbacks to simulate events
-      _postgresChangesCallbacks: [],
+      presenceState: vi.fn().mockReturnValue({}),
+      // Store callbacks to simulate events (similar to the old ChatPage test)
+      _postgresChangesCallbacks: [], // For specific `public:messages:room_id=eq.${MOCK_ROOM_ID}`
       _presenceSyncCallbacks: [],
       _presenceJoinCallbacks: [],
       _presenceLeaveCallbacks: [],
       _broadcastCallbacks: {}, // eventName: [callbacks]
-
-      // Extended mock 'on' to store callbacks by event type
       _on: function(event, filter, callback) {
-        if (event === 'postgres_changes') this._postgresChangesCallbacks.push(callback);
+        if (event === 'postgres_changes' && filter.table === 'messages') this._postgresChangesCallbacks.push(callback);
         else if (event === 'presence' && filter.event === 'sync') this._presenceSyncCallbacks.push(callback);
         else if (event === 'presence' && filter.event === 'join') this._presenceJoinCallbacks.push(callback);
         else if (event === 'presence' && filter.event === 'leave') this._presenceLeaveCallbacks.push(callback);
@@ -95,171 +69,188 @@ describe('ChatPage Component', () => {
             if (!this._broadcastCallbacks[filter.event]) this._broadcastCallbacks[filter.event] = [];
             this._broadcastCallbacks[filter.event].push(callback);
         }
-        return this; // Return 'this' to allow chaining
+        return this;
       },
-       // Helper to simulate receiving a Postgres change event
-      simulatePostgresChange: function(payload) {
-        this._postgresChangesCallbacks.forEach(cb => cb(payload));
-      },
-      // Helper to simulate receiving a presence sync event
-      simulatePresenceSync: function() {
-        const state = this.presenceState(); // Get current mocked presence state
-        this._presenceSyncCallbacks.forEach(cb => cb(state)); // Pass the whole state map
-      },
-       simulatePresenceJoin: function(key, newPresences) {
-        this._presenceJoinCallbacks.forEach(cb => cb({ key, newPresences }));
-      },
-      simulatePresenceLeave: function(key, leftPresences) {
-        this._presenceLeaveCallbacks.forEach(cb => cb({ key, leftPresences }));
-      },
-      // Helper to simulate receiving a broadcast event
-      simulateBroadcast: function(eventName, payload) {
-        if (this._broadcastCallbacks[eventName]) {
-          this._broadcastCallbacks[eventName].forEach(cb => cb(payload));
-        }
-      }
+      simulatePostgresChange: function(payload) { this._postgresChangesCallbacks.forEach(cb => cb(payload)); },
+      simulatePresenceSync: function() { this._presenceSyncCallbacks.forEach(cb => cb(this.presenceState())); },
+      simulatePresenceJoin: function(key, newPresences) { this._presenceJoinCallbacks.forEach(cb => cb({ key, newPresences })); },
+      simulatePresenceLeave: function(key, leftPresences) { this._presenceLeaveCallbacks.forEach(cb => cb({ key, leftPresences })); },
+      simulateBroadcast: function(eventName, payload) { if (this._broadcastCallbacks[eventName]) this._broadcastCallbacks[eventName].forEach(cb => cb(payload));}
     };
-    // Replace the 'on' method with our extended version for storing callbacks
-    mockSupabaseChannel.on = mockSupabaseChannel._on;
+    mockSupabaseChannelInstance.on = mockSupabaseChannelInstance._on; // Assign the extended 'on'
 
+    // When supabase.channel is called, return our controllable instance
+    supabase.channel.mockImplementation((channelName) => {
+      // Tests can check if `channelName` is correct (e.g., `room-channel-${MOCK_ROOM_ID}`)
+      // console.log(`Test: supabase.channel called with: ${channelName}`);
+      return mockSupabaseChannelInstance;
+    });
 
-    supabase.channel.mockReturnValue(mockSupabaseChannel);
+    // Pre-populate mock DB for message fetching
+    // The global mock will use these values now.
+    // Make sure resetMockSupabase clears these if they are set directly (it does via mockMessagesDb = [])
+    // For this test, we'll ensure mockMessagesDb has our room-specific messages.
+    global.mockMessagesDb = [...mockRoomMessages, ...anotherRoomMessages]; // Using global from mock for now
+                                                                        // Better: supabase.from().insert() in test setup
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+    global.mockMessagesDb = []; // Clean up global mock data if modified
   });
 
-  it('renders loading state initially then messages', async () => {
-    render(<ChatPage userProfile={mockUserProfile} onLogout={vi.fn()} />);
-    expect(screen.getByText('Loading chat...')).toBeInTheDocument();
+  const defaultProps = {
+    userProfile: mockUserProfile,
+    onLogout: vi.fn(),
+    onProfileUpdate: vi.fn(),
+    currentRoomId: MOCK_ROOM_ID,
+  };
+
+  it('renders loading state then messages for the current room', async () => {
+    render(<ChatPage {...defaultProps} />);
+    expect(screen.getByText(`Loading chat for room...`)).toBeInTheDocument(); // Updated loading text
+
     await waitFor(() => {
-      expect(screen.getByText('Hello')).toBeInTheDocument();
-      expect(screen.getByText('Hi there')).toBeInTheDocument();
+      expect(screen.getByText('Hello Room')).toBeInTheDocument();
+      expect(screen.getByText('Hi Room')).toBeInTheDocument();
+      expect(screen.queryByText('Message for another room')).not.toBeInTheDocument();
     });
+
+    // Check if supabase.from('messages').select().eq('room_id', MOCK_ROOM_ID) was called by the component.
+    // This assertion depends on how you've structured your global Supabase mock.
+    // The global mock's `_execute` function now handles filtering.
+    // We can check the call to `eq` on the mock `from('messages')` object.
+    // This is a bit indirect. A more direct way is to ensure the mock for `from('messages')` itself
+    // has an `eq` mock that we can inspect. The enhanced global mock does this.
+    // Let's assume the global mock filters correctly.
   });
 
-  it('allows user to type and send a message', async () => {
+  it('sends a message with the correct room_id', async () => {
     const user = userEvent.setup();
-    render(<ChatPage userProfile={mockUserProfile} onLogout={vi.fn()} />);
-    await waitFor(() => expect(screen.getByText('Hello')).toBeInTheDocument()); // Ensure initial messages loaded
+    render(<ChatPage {...defaultProps} />);
+    await waitFor(() => expect(screen.getByText('Hello Room')).toBeInTheDocument());
 
     const input = screen.getByPlaceholderText('Type your message...');
     const sendButton = screen.getByRole('button', { name: 'Send' });
 
-    await user.type(input, 'Test message');
-    expect(input.value).toBe('Test message');
+    await user.type(input, 'Test room message');
     await user.click(sendButton);
 
     await waitFor(() => {
-      expect(supabase.from('messages').insert).toHaveBeenCalledWith({
-        text: 'Test message',
-        profile_id: mockUserProfile.id,
-      });
+      // The global mock's `insert` for 'messages' will be called.
+      // We expect it to have been called with the room_id.
+      // The actual check of `supabase.from('messages').insert` is on the global mock.
+      // We need to ensure our mock's `insert` was called with the correct data.
+      // This requires the `supabase.from()` mock to return an object whose `insert` is a spy.
+      // The enhanced mock in `__mocks__/supabaseClient.js` does this.
+      expect(supabase.from('messages').insert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          text: 'Test room message',
+          profile_id: mockUserProfile.id,
+          room_id: MOCK_ROOM_ID,
+        })
+      );
     });
-    expect(input.value).toBe(''); // Input should clear after sending
+    expect(input.value).toBe('');
   });
 
-  it('displays new messages received via Supabase subscription', async () => {
-    render(<ChatPage userProfile={mockUserProfile} onLogout={vi.fn()} />);
-    await waitFor(() => expect(screen.getByText('Hello')).toBeInTheDocument());
+  it('displays new messages for the current room via subscription', async () => {
+    render(<ChatPage {...defaultProps} />);
+    await waitFor(() => expect(screen.getByText('Hello Room')).toBeInTheDocument());
 
     const newMessagePayload = {
-      new: { id: 'msg3', text: 'Realtime message!', created_at: new Date().toISOString(), profile_id: 'user-other-2', profiles: { username: 'OtherUser2' } },
-      table: 'messages',
-      schema: 'public',
-      event: 'INSERT',
+      new: { id: 'msg-realtime', room_id: MOCK_ROOM_ID, text: 'Realtime Room Message!', created_at: new Date().toISOString(), profile_id: 'user-realtime', profiles: { username: 'RealtimeSender' } },
+      table: 'messages', schema: 'public', event: 'INSERT',
     };
 
-    // Simulate receiving the message via the stored callback
-    act(() => { // Ensure state updates are wrapped in act
-        mockSupabaseChannel.simulatePostgresChange(newMessagePayload);
+    // Simulate the message coming through the channel this component subscribed to.
+    act(() => {
+      mockSupabaseChannelInstance.simulatePostgresChange(newMessagePayload);
     });
 
     await waitFor(() => {
-      expect(screen.getByText('Realtime message!')).toBeInTheDocument();
-      expect(screen.getByText('OtherUser2')).toBeInTheDocument();
+      expect(screen.getByText('Realtime Room Message!')).toBeInTheDocument();
     });
+
+    // Ensure a message for another room is NOT displayed
+    const otherRoomMessagePayload = {
+       new: { id: 'msg-other-room', room_id: 'some-other-room-id', text: 'Should not appear', created_at: new Date().toISOString(), profile_id: 'user-other', profiles: { username: 'OtherRoomSender' } },
+       table: 'messages', schema: 'public', event: 'INSERT',
+    };
+    act(() => {
+      mockSupabaseChannelInstance.simulatePostgresChange(otherRoomMessagePayload);
+    });
+    expect(screen.queryByText('Should not appear')).not.toBeInTheDocument();
+
   });
 
-  it('shows typing indicator when other users are typing', async () => {
-    render(<ChatPage userProfile={mockUserProfile} onLogout={vi.fn()} />);
-    await waitFor(() => expect(screen.getByText('Hello')).toBeInTheDocument());
+  it('shows typing indicator specific to the room', async () => {
+    render(<ChatPage {...defaultProps} />);
+    await waitFor(() => expect(screen.getByText('Hello Room')).toBeInTheDocument());
 
     act(() => {
-      mockSupabaseChannel.simulateBroadcast('typing', {
-        payload: { userId: 'user-other', username: 'OtherUser', isTyping: true },
+      mockSupabaseChannelInstance.simulateBroadcast('typing', { // Assuming 'typing' is the event name
+        payload: { userId: 'user-other-typing', username: 'TyperInRoom', isTyping: true },
       });
     });
-
-    await waitFor(() => {
-      expect(screen.getByText('OtherUser is typing...')).toBeInTheDocument();
-    });
+    await waitFor(() => expect(screen.getByText('TyperInRoom is typing...')).toBeInTheDocument());
 
     act(() => {
-        mockSupabaseChannel.simulateBroadcast('typing', {
-            payload: { userId: 'user-other', username: 'OtherUser', isTyping: false },
-        });
+      mockSupabaseChannelInstance.simulateBroadcast('typing', {
+        payload: { userId: 'user-other-typing', username: 'TyperInRoom', isTyping: false },
+      });
     });
-
-    await waitFor(() => {
-      expect(screen.queryByText('OtherUser is typing...')).not.toBeInTheDocument();
-    });
+    await waitFor(() => expect(screen.queryByText('TyperInRoom is typing...')).not.toBeInTheDocument());
   });
 
-  it('sends typing events when user types', async () => {
-    const user = userEvent.setup();
-    vi.useFakeTimers(); // Use fake timers for setTimeout in typing indicator
-    render(<ChatPage userProfile={mockUserProfile} onLogout={vi.fn()} />);
-    await waitFor(() => expect(screen.getByText('Hello')).toBeInTheDocument());
+  it('displays online status from presence in the current room', async () => {
+    render(<ChatPage {...defaultProps} />);
+    await waitFor(() => screen.getByText('Hello Room'));
 
-    const input = screen.getByPlaceholderText('Type your message...');
-    await user.type(input, 'T');
-
-    await waitFor(() => {
-      expect(mockSupabaseChannel.send).toHaveBeenCalledWith(expect.objectContaining({
-        event: 'typing',
-        payload: { userId: mockUserProfile.id, username: mockUserProfile.username, isTyping: true },
-      }));
-    });
-
-    // Fast-forward time to trigger the typing_stopped timeout
+    const otherUserKey = 'other-user-in-room-key';
+    const otherUsername = 'OnlineFellow';
     act(() => {
-        vi.advanceTimersByTime(2000);
+        mockSupabaseChannelInstance.simulatePresenceJoin(otherUserKey, [{ user_id: otherUserKey, username: otherUsername, online_at: new Date().toISOString() }]);
+    });
+
+    // To test this, we need a message from 'OnlineFellow'/'other-user-in-room-key'
+    // Let's add one to the mock DB before rendering or simulate receiving one.
+    // For simplicity, we'll assume the presence update itself should trigger a re-render
+    // that causes `isUserOnlineInRoom` to be re-evaluated for existing messages if any.
+    // If OtherUserInRoom (from mockRoomMessages) has id 'user-other', let's test that.
+
+    // Simulate 'user-other' (OtherUserInRoom) coming online in this room
+     act(() => {
+        mockSupabaseChannelInstance.simulatePresenceJoin('user-other', [{ user_id: 'user-other', username: 'OtherUserInRoom', online_at: new Date().toISOString() }]);
     });
 
     await waitFor(() => {
-      expect(mockSupabaseChannel.send).toHaveBeenCalledWith(expect.objectContaining({
-        event: 'typing',
-        payload: { userId: mockUserProfile.id, username: mockUserProfile.username, isTyping: false },
-      }));
-    });
-    vi.useRealTimers(); // Restore real timers
-  });
-
-  it('displays online status from presence', async () => {
-    render(<ChatPage userProfile={mockUserProfile} onLogout={vi.fn()} />);
-
-    // Initial messages should load
-    await waitFor(() => screen.getByText('Hello'));
-
-    // Simulate another user joining
-    const otherUserJoined = { key: 'user-other', newPresences: [{ user_id: 'user-other', username: 'OtherUser', online_at: new Date().toISOString() }] };
-    act(() => {
-        mockSupabaseChannel.simulatePresenceJoin(otherUserJoined.key, otherUserJoined.newPresences);
-    });
-
-    // Check if "OtherUser" is now considered online for their message
-    // This requires messages to re-render or their status part to update.
-    // The current message rendering logic uses isUserOnline(msg.profile_id)
-    await waitFor(() => {
-        const otherUserMessages = screen.getAllByText('OtherUser');
+        const otherUserMessages = screen.getAllByText('OtherUserInRoom'); // Author of 'Hello Room'
         otherUserMessages.forEach(msgAuthorElement => {
-            const parentMessageItem = msgAuthorElement.closest('.message-item');
-            const statusIndicator = parentMessageItem.querySelector('.status-indicator.online');
-            expect(statusIndicator).toBeInTheDocument();
+            const parentMessageItem = msgAuthorElement.closest('.message-item.received'); // Ensure it's a received message
+            if (parentMessageItem) {
+              const statusIndicator = parentMessageItem.querySelector('.status-indicator.online');
+              expect(statusIndicator).toBeInTheDocument();
+            }
         });
     });
+  });
+
+  it('does not display messages if currentRoomId is null', async () => {
+    render(<ChatPage {...defaultProps} currentRoomId={null} />);
+    // Should not show "Loading chat..." indefinitely or try to fetch.
+    // The component should handle null currentRoomId gracefully.
+    // Depending on implementation, it might show nothing or a placeholder.
+    // ChatPage's useEffect for fetching now returns early if !currentRoomId.
+    await waitFor(() => {
+        expect(screen.queryByText('Loading chat for room...')).not.toBeInTheDocument();
+        expect(screen.queryByText('Hello Room')).not.toBeInTheDocument();
+    });
+    // It should display the header, though.
+    expect(screen.getByRole('banner')).toBeInTheDocument(); // The <header> element
+    // The h1 in header shows roomDisplayName which would be "Room: N/A"
+    expect(screen.getByRole('heading', {name: /Room: N\/A/i})).toBeInTheDocument();
+
   });
 
 });

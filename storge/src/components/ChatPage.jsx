@@ -1,56 +1,67 @@
 import React, { useState, useEffect, useRef } from 'react';
 import PropTypes from 'prop-types';
 import { supabase } from '../supabaseClient';
+import ProfileModal from './ProfileModal'; // Import the ProfileModal component
 
-const ChatPage = ({ userProfile, onLogout }) => {
+const ChatPage = ({ userProfile, onLogout, onProfileUpdate, currentRoomId }) => { // Added currentRoomId
   const [message, setMessage] = useState('');
   const [messages, setMessages] = useState([]);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [typingUsers, setTypingUsers] = useState({});
-  const [onlineUsers, setOnlineUsers] = useState({}); // Stores { userId: { username, online_at } }
+  const [onlineUsersInRoom, setOnlineUsersInRoom] = useState({}); // Renamed and room-specific
   const typingTimeoutRef = useRef(null);
   const messagesEndRef = useRef(null);
 
-  const CHAT_CHANNEL_NAME = 'storge-chat'; // Renamed for clarity, can be anything unique
-  const TYPING_EVENT_NAME = 'typing'; // Keep this simple for broadcast
+  // Dynamic channel names based on currentRoomId
+  const roomSpecificChannelName = currentRoomId ? `room-channel-${currentRoomId}` : null;
+  const TYPING_EVENT_NAME = 'typing';
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
   useEffect(() => {
+    if (!currentRoomId || !userProfile?.id) {
+      setMessages([]);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    setMessages([]); // Clear messages when room changes
+    setTypingUsers({});
+    setOnlineUsersInRoom({});
+
     const fetchMessages = async () => {
-      setLoading(true);
       const { data, error } = await supabase
         .from('messages')
-        .select(`
-          id,
-          text,
-          created_at,
-          profile_id,
-          profiles ( username )
-        `) // online_status from profiles table is less reliable for active chat
+        .select('id, text, created_at, profile_id, profiles ( username )')
+        .eq('room_id', currentRoomId) // Filter by room_id
         .order('created_at', { ascending: true });
 
       if (error) {
-        console.error('Error fetching messages:', error);
+        console.error(`Error fetching messages for room ${currentRoomId}:`, error);
         setMessages([]);
       } else {
-        setMessages(data);
+        setMessages(data || []);
       }
       setLoading(false);
     };
 
     fetchMessages();
 
-    // Realtime subscription for new messages
+    // Realtime subscription for new messages in the current room
     const messagesSubscription = supabase
-      .channel('public:messages')
+      .channel(`public:messages:room_id=eq.${currentRoomId}`) // More specific channel
       .on(
         'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'messages' },
+        { event: 'INSERT', schema: 'public', table: 'messages', filter: `room_id=eq.${currentRoomId}` },
         async (payload) => {
           let newMessage = payload.new;
+          // Ensure message belongs to the current room (double check, though filter should handle)
+          if (newMessage.room_id !== currentRoomId) return;
+
           if (newMessage.profile_id && !newMessage.profiles) {
             const { data: profileData, error: profileError } = await supabase
               .from('profiles')
@@ -69,58 +80,56 @@ const ChatPage = ({ userProfile, onLogout }) => {
       )
       .subscribe((status, err) => {
         if (status === 'SUBSCRIBED') {
-          console.log('Subscribed to messages DB changes!');
+          console.log(`Subscribed to messages in room ${currentRoomId}`);
         } else if (err) {
-          console.error('Messages DB subscription error:', err);
+          console.error(`Messages DB subscription error for room ${currentRoomId}:`, err);
         }
       });
 
-    // Chat channel for presence and typing indicators
-    let chatChannel;
-    if (userProfile?.id) {
-      chatChannel = supabase.channel(CHAT_CHANNEL_NAME, {
+    // Room-specific channel for presence and typing indicators
+    let roomChannelInstance;
+    if (roomSpecificChannelName) {
+      roomChannelInstance = supabase.channel(roomSpecificChannelName, {
         config: {
-          presence: {
-            key: userProfile.id, // Unique key for this user in presence state
-          },
-          broadcast: {
-            self: false, // Don't receive our own typing events
-          },
+          presence: { key: userProfile.id },
+          broadcast: { self: false },
         },
       });
 
-      chatChannel
+      roomChannelInstance
         .on('presence', { event: 'sync' }, () => {
-          const presenceState = chatChannel.presenceState();
+          const presenceState = roomChannelInstance.presenceState();
           const currentOnlineUsers = {};
           for (const key in presenceState) {
             const presences = presenceState[key];
             if (presences.length > 0) {
-              // Assuming the payload from track() includes username
               currentOnlineUsers[key] = {
-                username: presences[0].username || 'User', // Fallback username
-                online_at: presences[0].online_at
+                username: presences[0].username || 'User',
+                online_at: presences[0].online_at,
               };
             }
           }
-          setOnlineUsers(currentOnlineUsers);
+          setOnlineUsersInRoom(currentOnlineUsers);
         })
         .on('presence', { event: 'join' }, ({ key, newPresences }) => {
           if (newPresences.length > 0) {
-            setOnlineUsers(prev => ({ ...prev, [key]: {
+            setOnlineUsersInRoom(prev => ({ ...prev, [key]: {
               username: newPresences[0].username || 'User',
-              online_at: newPresences[0].online_at
-            } }));
+              online_at: newPresences[0].online_at,
+            }}));
           }
         })
-        .on('presence', { event: 'leave' }, ({ key, leftPresences }) => {
-          setOnlineUsers(prev => {
+        .on('presence', { event: 'leave' }, ({ key /*, leftPresences */ }) => {
+          setOnlineUsersInRoom(prev => {
             const updated = { ...prev };
             delete updated[key];
             return updated;
           });
         })
         .on('broadcast', { event: TYPING_EVENT_NAME }, (payload) => {
+          // Ensure typing event is for the current user and not self if not filtered by broadcast.self
+          if (payload.payload?.userId === userProfile.id && !roomChannelInstance.broadcast.self) return;
+
           const { userId, username, isTyping } = payload.payload;
           if (isTyping) {
             setTypingUsers((prev) => ({ ...prev, [userId]: username }));
@@ -134,39 +143,40 @@ const ChatPage = ({ userProfile, onLogout }) => {
         })
         .subscribe(async (status, err) => {
           if (status === 'SUBSCRIBED') {
-            console.log(`Subscribed to ${CHAT_CHANNEL_NAME} channel`);
-            await chatChannel.track({
-              user_id: userProfile.id,
-              username: userProfile.username,
-              online_at: new Date().toISOString()
+            console.log(`Subscribed to room channel ${roomSpecificChannelName}`);
+            await roomChannelInstance.track({
+              username: userProfile.username, // Pass username for presence
+              online_at: new Date().toISOString(),
             });
           } else if (err) {
-            console.error(`${CHAT_CHANNEL_NAME} channel error:`, err);
+            console.error(`Room channel ${roomSpecificChannelName} error:`, err);
           }
         });
     }
 
     return () => {
       supabase.removeChannel(messagesSubscription);
-      if (chatChannel) {
-        chatChannel.untrack(); // Important to untrack on unmount/logout
-        supabase.removeChannel(chatChannel);
+      if (roomChannelInstance) {
+        roomChannelInstance.untrack();
+        supabase.removeChannel(roomChannelInstance);
       }
       if (typingTimeoutRef.current) {
         clearTimeout(typingTimeoutRef.current);
       }
     };
-  }, [userProfile]);
+  }, [currentRoomId, userProfile?.id, userProfile?.username]); // Added userProfile.username for track
 
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
 
   const sendTypingEvent = async (isTyping) => {
-    if (!userProfile || !supabase.channel(CHAT_CHANNEL_NAME)) return;
+    if (!userProfile || !roomSpecificChannelName) return;
+    const channel = supabase.channel(roomSpecificChannelName);
+    if (!channel) return;
 
     try {
-      await supabase.channel(CHAT_CHANNEL_NAME).send({
+      await channel.send({
         type: 'broadcast',
         event: TYPING_EVENT_NAME,
         payload: { userId: userProfile.id, username: userProfile.username, isTyping },
@@ -204,7 +214,7 @@ const ChatPage = ({ userProfile, onLogout }) => {
   const handleSendMessage = async (event) => {
     event.preventDefault();
     const messageText = message.trim();
-    if (messageText === '' || !userProfile) return;
+    if (messageText === '' || !userProfile || !currentRoomId) return;
 
     if (typingTimeoutRef.current) {
       clearTimeout(typingTimeoutRef.current);
@@ -214,7 +224,11 @@ const ChatPage = ({ userProfile, onLogout }) => {
 
     const { error } = await supabase
       .from('messages')
-      .insert({ text: messageText, profile_id: userProfile.id });
+      .insert({
+        text: messageText,
+        profile_id: userProfile.id,
+        room_id: currentRoomId, // Add room_id to the message
+      });
 
     if (error) {
       console.error('Error sending message:', error);
@@ -230,33 +244,55 @@ const ChatPage = ({ userProfile, onLogout }) => {
   };
 
   if (loading && !messages.length) {
-    return <div>Loading chat...</div>;
+    return <div>Loading chat for room...</div>;
   }
 
   const currentUserProfileId = userProfile?.id;
-  const isUserOnline = (userId) => !!onlineUsers[userId];
+  // Use onlineUsersInRoom for checking status
+  const isUserOnlineInRoom = (userId) => !!onlineUsersInRoom[userId];
+
+
+  // Attempt to get room name (assuming rooms are passed down or fetched, this is a placeholder)
+  // For a proper implementation, ChatPage might need access to the current room object, not just ID.
+  // Or, App.jsx could pass the room's name. For now, just use ID.
+  const roomDisplayName = `Room: ${currentRoomId ? currentRoomId.substring(0, 8) + "..." : "N/A"}`;
+
 
   return (
     <div className="chat-page">
       <header className="chat-header">
-        <h1>Storge Chat</h1>
+        <h1>{roomDisplayName}</h1> {/* Display room name/ID */}
         {userProfile && (
           <span className="user-display">
-            Welcome, {userProfile.username}
+            {userProfile.username}
             <span
-              title={isUserOnline(userProfile.id) ? 'Online' : 'Offline (Connecting...)'}
-              className={`status-indicator ${isUserOnline(userProfile.id) ? 'online' : 'offline'}`}
+              title={isUserOnlineInRoom(userProfile.id) ? 'Online in this room' : 'Offline in this room (or connecting...)'}
+              className={`status-indicator ${isUserOnlineInRoom(userProfile.id) ? 'online' : 'offline'}`}
             ></span>
           </span>
         )}
+        <button onClick={() => setIsProfileModalOpen(true)} className="profile-button">Profile</button>
         <button onClick={onLogout} className="logout-button">Logout</button>
       </header>
+      {isProfileModalOpen && userProfile && (
+        <ProfileModal
+          user={userProfile}
+          onClose={() => setIsProfileModalOpen(false)}
+          onProfileUpdated={(updatedProfile) => {
+            // Optionally update local state if needed, or rely on App.jsx re-fetch
+            if (onProfileUpdate) {
+              onProfileUpdate(updatedProfile);
+            }
+            setIsProfileModalOpen(false); // Close modal after update
+          }}
+        />
+      )}
       <div className="messages-list">
         {messages.map((msg) => {
           const isSentByCurrentUser = msg.profile_id === currentUserProfileId;
           const authorUsername = msg.profiles?.username || (isSentByCurrentUser ? userProfile.username : 'Unknown User');
-          // Use onlineUsers state for author's online status if available
-          const authorIsOnline = isUserOnline(msg.profile_id);
+          // Use onlineUsersInRoom state for author's online status if available
+          const authorIsOnline = isUserOnlineInRoom(msg.profile_id);
 
           return (
             <div
@@ -313,9 +349,13 @@ ChatPage.propTypes = {
   userProfile: PropTypes.shape({
     id: PropTypes.string.isRequired,
     username: PropTypes.string.isRequired,
+    bio: PropTypes.string, // Added bio
+    status_message: PropTypes.string, // Added status_message
     // online_status: PropTypes.bool, // This is now primarily handled by presence
   }).isRequired,
   onLogout: PropTypes.func.isRequired,
+  onProfileUpdate: PropTypes.func,
+  currentRoomId: PropTypes.string, // Can be null if no room is selected
 };
 
 export default ChatPage;
